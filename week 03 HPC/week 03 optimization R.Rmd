@@ -1,0 +1,58 @@
+---
+title: "Week 03 - Python Optimization Assignment"
+author: "Haritha Thipparapu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+# Load required libraries
+library(geosphere)
+library(microbenchmark)
+library(readxl)
+
+# Read in the data
+df <- read_excel("clinic.xls")
+
+# Convert latitude & longitude into a matrix
+lat_lon <- as.matrix(df[, c("locLat", "locLong")])
+
+# Define a reference point (NYC coordinates)
+ref_point <- c(40.671, -73.985)
+
+# Approach 1: For-loop (Baseline)
+haversine_looping <- function(df) {
+  distance_list <- numeric(nrow(df))
+  for (i in 1:nrow(df)) {
+    distance_list[i] <- distHaversine(ref_point, lat_lon[i, ])
+  }
+  return(distance_list)
+}
+
+# Approach 2: Vectorized version using apply()
+haversine_apply <- function(df) {
+  return(apply(lat_lon, 1, function(x) distHaversine(ref_point, x)))
+}
+
+# Approach 3: Fastest method using `distm()`
+haversine_distm <- function(df) {
+  return(distm(lat_lon, ref_point, fun = distHaversine))
+}
+
+# Measure execution time
+benchmark_results <- microbenchmark(
+  loop = haversine_looping(df),
+  apply = haversine_apply(df),
+  distm = haversine_distm(df),
+  times = 5
+)
+
+print(benchmark_results)
+
+# Save results
+df$distance_loop <- haversine_looping(df)
+df$distance_apply <- haversine_apply(df)
+df$distance_distm <- haversine_distm(df)
+
+write.csv(df, "distance_results_R.csv", row.names = FALSE)
+``` 
