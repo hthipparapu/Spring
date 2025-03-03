@@ -1,0 +1,318 @@
+---
+title: "week6"
+author: "Haritha Thipparapu"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(GA)
+library(geosphere)
+library(dplyr)
+```
+```{r}
+
+df <- read.csv("/mnt/data/Mo_pop_Sim.csv")  # Adjust path as needed
+
+
+```
+
+```{r}
+# Load datasets
+residents <- read.csv("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/Mo_pop_Sim.csv")
+
+# Read the XML file (install 'XML' package if needed)
+library(XML)
+fqhc <- xmlParse("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/MO_2018_Federally_Qualified_Health_Center_Locations.xml")
+
+
+# Define fitness function (Option: Density-based approach)
+fitness_function <- function(indices) {
+  selected_fqhc <- fqhc[indices, ]
+  total_residents_served <- sum(sapply(1:nrow(selected_fqhc), function(i) {
+    sum(distHaversine(matrix(c(selected_fqhc$long[i], selected_fqhc$lat[i]), ncol=2), 
+                       matrix(c(residents$long, residents$lat), ncol=2)) <= 48280)  # 30-mile radius (48,280 meters)
+  }))
+  return(total_residents_served)
+}
+
+# Define genetic algorithm parameters
+GA_model <- ga(
+  type = "permutation",
+  fitness = function(indices) fitness_function(indices),
+  lower = 1,
+  upper = nrow(fqhc),
+  popSize = 50,    # Population size
+  maxiter = 100,   # Max iterations
+  run = 50,        # Convergence criteria
+  pmutation = 0.2, # Mutation probability
+  parallel = TRUE  # Enable parallel execution
+)
+
+# Get best solution
+best_indices <- GA_model@solution
+selected_fqhc <- fqhc[best_indices, ]
+
+# Save results
+write.csv(selected_fqhc, "selected_FQHCs.csv", row.names = FALSE)
+
+# Print selected FQHC locations
+print(selected_fqhc)
+
+```
+
+```{r}
+# Load required libraries
+library(GA)       # Genetic Algorithm
+library(XML)      # XML parsing
+library(geosphere) # Distance calculations
+
+# Load Residents Data (Simulated Missouri Population)
+residents <- read.csv("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/Mo_pop_Sim.csv")
+
+# Load Healthcare Facility Locations from XML
+fqhc_xml <- xmlParse("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/MO_2018_Federally_Qualified_Health_Center_Locations.xml")
+fqhc <- xmlToDataFrame(nodes = getNodeSet(fqhc_xml, "//Row"))  # Modify XPath if needed
+
+# Convert necessary columns to numeric
+residents$Latitude <- as.numeric(residents$Latitude)
+residents$Longitude <- as.numeric(residents$Longitude)
+fqhc$Latitude <- as.numeric(fqhc$Latitude)
+fqhc$Longitude <- as.numeric(fqhc$Longitude)
+
+# Check if the data loaded correctly
+print(dim(residents))  # Ensure residents data is loaded
+print(dim(fqhc))       # Ensure fqhc data is loaded
+if (nrow(fqhc) == 0) stop("Error: fqhc dataset is empty!")
+
+# Define Fitness Function (Average Closeness)
+fitness_function <- function(indices) {
+  selected_centers <- fqhc[indices, ]  # Select the chosen FQHC locations
+  
+  total_distance <- 0
+  
+  for (i in 1:nrow(residents)) {
+    resident_location <- c(residents$Longitude[i], residents$Latitude[i])
+    min_distance <- min(
+      distHaversine(resident_location, as.matrix(selected_centers[, c("Longitude", "Latitude")]))
+    )
+    total_distance <- total_distance + min_distance
+  }
+  
+  return(-total_distance)  # Minimize total distance (negate for maximization in GA)
+}
+
+# Run Genetic Algorithm
+GA_model <- ga(
+  type = "permutation",
+  fitness = function(indices) fitness_function(indices),
+  lower = 1,
+  upper = nrow(fqhc), 
+  popSize = 50,    # Population size
+  maxiter = 100,   # Max iterations
+  run = 50,        # Convergence criteria
+  pmutation = 0.2, # Mutation probability
+  parallel = TRUE  # Enable parallel execution
+)
+
+# Print Best Solution
+best_indices <- GA_model@solution[1, ]
+best_facilities <- fqhc[best_indices, ]
+
+print("Selected FQHCs for mental health services:")
+print(best_facilities)
+
+# Save the results
+write.csv(best_facilities, "C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/Selected_FQHCs.csv", row.names = FALSE)
+
+```
+
+```{r}
+library(XML)
+
+# Load XML file
+fqhc_xml <- xmlParse("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/MO_2018_Federally_Qualified_Health_Center_Locations.xml")
+
+# View XML structure
+print(xmlRoot(fqhc_xml))  # This will show the root structure
+
+# Extract nodes to check available data
+nodes <- getNodeSet(fqhc_xml, "//Row")  # Modify XPath if needed
+print(length(nodes))  # Should NOT be 0
+
+```
+
+
+
+```{r}
+
+# Load necessary libraries
+library(data.table)
+library(geosphere)
+library(GA)
+library(purrr)
+
+# Load Missouri population dataset
+pop_data <- fread("Mo_pop_Sim.csv")
+
+# Display dataset structure
+str(pop_data)
+
+# Extract a small representative subset (using a different fraction approach)
+set.seed(42)  # Ensure reproducibility
+sample_size <- floor(0.01 * nrow(pop_data))  # Sample 1% of the data
+sampled_data <- pop_data[sample(.N, sample_size, replace = FALSE)]
+
+```
+
+```{r}
+library(xml2)
+
+# Load the XML file
+xml_data <- read_xml("C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/MO_2018_Federally_Qualified_Health_Center_Locations.xml")
+
+# Extract relevant information, e.g., title, abstract, etc.
+title <- xml_text(xml_find_first(xml_data, ".//title"))
+abstract <- xml_text(xml_find_first(xml_data, ".//abstract"))
+
+# Print the extracted data
+print(title)
+print(abstract)
+
+```
+
+
+```{r}
+
+# Load the FQHC dataset
+fqhc_data <- data.table(as.data.frame(st_read('C:/Users/harit/Documents/Week 06 - Genetic Algorithm Assignment/MO_2018_Federally_Qualified_Health_Center_Locations.shp')))
+
+# Verify column names
+names(fqhc_data)
+
+# Extract coordinates from both datasets
+fqhc_locations <- fqhc_data[, .(id = .I, long = Longitude, lat = Latitude)]
+residence_locations <- sampled_data[, .(long, lat)]
+
+```
+```{r}
+# Function to compute the average distance of an FQHC to all residences
+compute_average_distance <- function(fqhc_index) {
+  location_point <- fqhc_locations[id == fqhc_index, .(long, lat)]
+  
+  # Compute geodesic distances (Haversine formula)
+  distances <- distHaversine(
+    p1 = as.matrix(residence_locations),
+    p2 = as.matrix(location_point)
+  )
+
+  # Convert meters to miles and return the mean distance
+  return(mean(distances) / 1609.34)
+}
+
+# Compute and rank FQHCs by proximity to residences
+fqhc_locations[, avg_proximity := sapply(id, compute_average_distance)]
+ranked_by_proximity <- fqhc_locations[order(avg_proximity)]
+top_8_by_distance <- ranked_by_proximity[1:8]
+print(top_8_by_distance[, .(id, long, lat, avg_proximity)])
+
+```
+
+```{r}
+
+# Function to count residents within a 30-mile radius of an FQHC
+count_residents_nearby <- function(fqhc_index, radius_miles = 30) {
+  location_point <- fqhc_locations[id == fqhc_index, .(long, lat)]
+  radius_meters <- radius_miles * 1609.34  # Convert miles to meters
+  
+  # Compute distances from all residences
+  distances <- distHaversine(
+    p1 = as.matrix(residence_locations),
+    p2 = as.matrix(location_point)
+  )
+
+  # Count the number of residents within the specified radius
+  return(sum(distances <= radius_meters))
+}
+
+# Compute population density within 30 miles
+fqhc_locations[, nearby_population := sapply(id, count_residents_nearby)]
+
+# Rank FQHCs by highest nearby population density
+ranked_by_density <- fqhc_locations[order(-nearby_population)]
+top_8_by_density <- ranked_by_density[1:8]
+print(top_8_by_density[, .(id, long, lat, nearby_population)])
+
+```
+
+```{r}
+
+# Normalize values between 0 and 1 for fair comparison
+normalize <- function(x) (x - min(x)) / (max(x) - min(x))
+
+fqhc_locations[, norm_proximity := 1 - normalize(avg_proximity)]  # Invert distance score
+fqhc_locations[, norm_density := normalize(nearby_population)]
+
+# Compute a composite ranking score (equal weights)
+fqhc_locations[, score := 0.5 * norm_proximity + 0.5 * norm_density]
+
+# Rank by composite score
+ranked_combined <- fqhc_locations[order(-score)]
+top_8_combined <- ranked_combined[1:8]
+print(top_8_combined[, .(id, long, lat, score)])
+
+
+```
+
+
+```{r}
+
+# Define the fitness function
+evaluate_population_coverage <- function(indices) {
+  total_served <- 0
+  service_radius <- 30 * 1609.34  # Convert 30 miles to meters
+
+  for (index in indices) {
+    location <- fqhc_locations[id == index, .(long, lat)]
+    distances <- distHaversine(as.matrix(residence_locations), as.matrix(location))
+    total_served <- total_served + sum(distances <= service_radius)
+  }
+
+  return(total_served)
+}
+
+# Wrapper function for GA fitness
+ga_fitness_function <- function(x) {
+  selected_indices <- as.integer(x)
+  return(evaluate_population_coverage(selected_indices))
+}
+
+# Run Genetic Algorithm
+ga_model <- ga(
+  type = "permutation",
+  fitness = ga_fitness_function,
+  lower = 1, upper = nrow(fqhc_locations),
+  popSize = 50,
+  maxiter = 20,
+  run = 10,
+  pmutation = 0.2,
+  parallel = FALSE,
+  monitor = TRUE,
+  elitism = 2
+)
+
+# Extract the best solution
+best_solution_indices <- ga_model@solution[1, ]
+optimal_fqhc_locations <- fqhc_locations[id %in% best_solution_indices, ]
+print(optimal_fqhc_locations)
+
+```
+
+
+
+
+
+
+
+
