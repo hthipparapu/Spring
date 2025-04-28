@@ -1,0 +1,226 @@
+---
+title: "Week 11 - Comparison of R/Python for XGBoost"
+output: html_notebook
+---
+
+```{r}
+library(mlbench)
+library(purrr)
+library(xgboost)
+library(dplyr)
+library(caret)
+
+# Load and prepare the diabetes dataset
+data("PimaIndiansDiabetes2")
+ds <- as.data.frame(na.omit(PimaIndiansDiabetes2))
+
+# Fit a logistic regression model to obtain a parametric equation
+logmodel <- glm(diabetes ~ .,
+                data = ds,
+                family = "binomial")
+
+# Extract coefficients and predictor names
+cfs <- coefficients(logmodel)
+prednames <- variable.names(ds)[-9]  # fetch names of predictors in a vector
+
+# Function to generate bootstrapped dataset of specified size
+generate_data <- function(size) {
+  # Create data frame with bootstrapped samples for each predictor
+  dfdata <- map_dfc(prednames,
+                    function(nm) {
+                      eval(parse(text = paste0("sample(ds$", nm,
+                                               ", size = ", size, ", replace = TRUE)")))
+                    })
+  
+  names(dfdata) <- prednames
+  
+  # Compute the logit values
+  pvec <- map((1:8),
+              function(pnum) {
+                cfs[pnum+1] * eval(parse(text = paste0("dfdata$",
+                                                       prednames[pnum])))
+              }) %>%
+    reduce(`+`) +
+    cfs[1]  # add the intercept
+  
+  # Convert to probability and then binary outcome
+  dfdata$outcome <- ifelse(1/(1 + exp(-(pvec))) > 0.5, 1, 0)
+  
+  return(dfdata)
+}
+
+# Define dataset sizes
+sizes <- c(100, 1000, 10000, 100000, 1000000, 10000000)
+
+# Initialize results data frames
+results_direct <- data.frame(
+  Method = character(),
+  Dataset_Size = integer(),
+  Accuracy = numeric(),
+  Time_Taken_Sec = numeric(),
+  stringsAsFactors = FALSE
+)
+
+results_caret <- data.frame(
+  Method = character(),
+  Dataset_Size = integer(),
+  Accuracy = numeric(),
+  Time_Taken_Sec = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Set seed for reproducibility
+set.seed(123)
+
+# XGBoost Direct approach
+for (sz in sizes) {
+  tryCatch({
+    cat("Processing dataset size:", sz, "with direct XGBoost\n")
+    
+    # Generate data
+    tempdata <- generate_data(sz)
+    
+    # Split into train and test (80/20)
+    train_idx <- sample(1:nrow(tempdata), 0.8 * nrow(tempdata))
+    train <- tempdata[train_idx, ]
+    test <- tempdata[-train_idx, ]
+    
+    # Prepare matrices for xgboost
+    dtrain <- xgb.DMatrix(data = as.matrix(select(train, -outcome)), label = train$outcome)
+    dtest <- xgb.DMatrix(data = as.matrix(select(test, -outcome)), label = test$outcome)
+    
+    # Start timer
+    start_time <- Sys.time()
+    
+    # Train model with 5-fold cross-validation
+    cv_results <- xgb.cv(
+      data = dtrain,
+      params = list(
+        objective = "binary:logistic",
+        max_depth = 3,
+        eta = 0.1
+      ),
+      nrounds = 50,
+      nfold = 5,
+      early_stopping_rounds = 10,
+      verbose = 0
+    )
+    
+    # Train the final model with the best number of rounds
+    best_rounds <- cv_results$best_iteration
+    model <- xgboost(
+      data = dtrain,
+      objective = "binary:logistic",
+      nrounds = best_rounds,
+      max_depth = 3,
+      eta = 0.1,
+      verbose = 0
+    )
+    
+    # End timer
+    end_time <- Sys.time()
+    
+    # Make predictions
+    preds <- predict(model, dtest)
+    preds_class <- ifelse(preds > 0.5, 1, 0)
+    
+    # Calculate accuracy
+    accuracy <- mean(preds_class == test$outcome)
+    
+    # Store results
+    results_direct <- rbind(results_direct, data.frame(
+      Method = "XGBoost in R – direct use of xgboost() with simple cross-validation",
+      Dataset_Size = sz,
+      Accuracy = round(accuracy, 4),
+      Time_Taken_Sec = round(as.numeric(difftime(end_time, start_time, units = "secs")), 2)
+    ))
+  }, error = function(e) {
+    cat("Error processing size", sz, ":", e$message, "\n")
+    results_direct <<- rbind(results_direct, data.frame(
+      Method = "XGBoost in R – direct use of xgboost() with simple cross-validation",
+      Dataset_Size = sz,
+      Accuracy = NA,
+      Time_Taken_Sec = NA
+    ))
+  })
+}
+
+# XGBoost with caret
+for (sz in sizes) {
+  tryCatch({
+    cat("Processing dataset size:", sz, "with caret\n")
+    
+    # Generate data
+    tempdata <- generate_data(sz)
+    
+    # Split into train and test (80/20)
+    train_idx <- sample(1:nrow(tempdata), 0.8 * nrow(tempdata))
+    train <- tempdata[train_idx, ]
+    test <- tempdata[-train_idx, ]
+    
+    # Set up 5-fold cross-validation
+    train_control <- trainControl(method = "cv", number = 5)
+    
+    # Start timer
+    start_time <- Sys.time()
+    
+    # Train model
+    model <- train(
+      x = train[, -ncol(train)],
+      y = as.factor(train$outcome),
+      method = "xgbTree",
+      trControl = train_control,
+      tuneGrid = expand.grid(
+        nrounds = 50,
+        max_depth = 3,
+        eta = 0.1,
+        gamma = 0,
+        colsample_bytree = 1,
+        min_child_weight = 1,
+        subsample = 1
+      ),
+      verbose = FALSE
+    )
+    
+    # End timer
+    end_time <- Sys.time()
+    
+    # Predict on test set
+    preds <- predict(model, newdata = test[, -ncol(test)])
+    preds_class <- as.numeric(as.character(preds))
+    
+    # Calculate accuracy
+    accuracy <- mean(preds_class == test$outcome)
+    
+    # Store results
+    results_caret <- rbind(results_caret, data.frame(
+      Method = "XGBoost in R – via caret, with 5-fold CV",
+      Dataset_Size = sz,
+      Accuracy = round(accuracy, 4),
+      Time_Taken_Sec = round(as.numeric(difftime(end_time, start_time, units = "secs")), 2)
+    ))
+  }, error = function(e) {
+    cat("Error processing size", sz, ":", e$message, "\n")
+    results_caret <<- rbind(results_caret, data.frame(
+      Method = "XGBoost in R – via caret, with 5-fold CV",
+      Dataset_Size = sz,
+      Accuracy = NA,
+      Time_Taken_Sec = NA
+    ))
+  })
+}
+
+# Combine results
+results_combined <- rbind(results_direct, results_caret)
+
+# Save results
+write.csv(results_combined, "xgboost_comparison_results_r.csv", row.names = FALSE)
+
+# Print results
+print(results_direct)
+print(results_caret)
+
+```
+
+
+
